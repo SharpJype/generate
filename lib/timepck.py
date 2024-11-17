@@ -14,7 +14,7 @@ def func_timer_decor(func):
         t_start = nspec()
         out = func(*args, **kwargs)
         t_stop = nspec()
-        print(func, f"{(t_stop-t_start)/1e6} ms")
+        print(f"{(t_stop-t_start)/1e6:.3f} ms")
         return out
     return wrapper
 
@@ -107,70 +107,5 @@ def ticks(seconds=10, rate=1):
         seconds -= sw.lap/1e9
 
 
-
 if __name__ == "__main__":
-##    t_start = nspec()
-##    n = 10
-##    for t in ticks(n, .5): datetime_print("-"*int(t)+str(t), depth=0)
-##    t_stop = (nspec()-t_start)/1e6
-##    print(t_stop, "ms")
-    
-##    ticks(10, 0.5)
-##    print(utcpath(utcnowtime()))
-    
-##    x = utcadd(utcnow(False), years=10000, months=-100000)
-##    print(type(x))
-    
-##    t = utcnow(True)
-##    print(t)
-##    print(utcadd(t, days=2))
-    ##
-##    s = utcnow()
-##    print(s)
-##    print(dtdtformat(s))
-##    e = utcnow(False)
-##    print(e)
-##    es = utcpath(e)+"___"
-##    print(es)
-##    print(utcpath(es))
-##    d = utcdur(e, s)
-##    print(str(d))
-
-##    d = dttd(days=365)-dttd(seconds=5000)
-##    d = utcdelta(d, years=True, hours=True, minutes=True, seconds=True, microseconds=True, string=True)
-##    print(d)
-    
-##    durstring = "{0}a{1}h{2}min".format(*d)
-##    print(durstring) # , years=False, days=True, hours=False, minutes=False, seconds=True, microseconds=True
-##    print(utcpath(d))
-##    print(utcpath(utcnow(False)))
-    
-    ## stopwatch
-##    sw = stopwatch()
-##    sw.reset()
-##    for x in range(20): sw()
-##    sw.reset()
-##    for x in range(20): sw()
-##    print(sw.time)
-
-    ## clock
-##    ms = 4.#66666666666666666666
-##    c = clock(ms) #
-##    pc = time.Clock()
-##    c.start()
-##    i = 0
-##    starttime = nspec()
-##    for x in range(100):
-####        print(i, c.stopwatch.sincecall/10**9)
-##        i = c()
-####        print(round(1000/ms))
-####        pc.tick(round(1000/ms))
-##    t = nspec()-starttime
-##    print(t)
-
-    # synctime
-##    x = synctime()
-##    print(x)
-##    print(synctime_i(x))
-    
     pass

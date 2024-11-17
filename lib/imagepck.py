@@ -1,9 +1,130 @@
 import os
-import ospck
-from arrayprc import *
+import numpy as np
 
 from PIL import Image as PILimg
 import imageio.v2 as imageio
+
+
+## from ospck
+def explode(path):
+    dirs = name = ext = None
+    path = path.replace("/", os.path.sep).replace("\\", os.path.sep)
+    drive, path = os.path.splitdrive(path) # if UNC
+    if not drive: drive, path = os.path.splitdrive(path)
+    dirs = []
+    if path:
+        name = os.path.basename(path)
+        if "." in name: name, ext = name.rsplit(".", 1)
+        dirpath, tail = os.path.split(os.path.dirname(path))
+        while tail:
+            dirs.append(tail)
+            dirpath, tail = os.path.split(dirpath)
+    if drive: dirs.append(drive)
+    dirs = dirs[::-1]
+    if "" in dirs[-1:]: dirs = dirs[:-1]
+    return dirs, name, ext
+
+def implode(dirs, name=None, ext=None): return (os.path.sep.join(dirs) if dirs else ".")+str(os.path.sep+name+str("."+ext if ext else "") if name else "")
+## ospck ends
+
+
+
+## from arrayprc
+def is_array(x): return type(x)==np.ndarray
+def is_float(x, array=True): return type(x)==float or isinstance(x, np.floating) or (array and is_array(x) and is_float(getattr(np, str(x.dtype))(1)))
+def is_integer(x, array=True): return type(x)==int or isinstance(x, np.integer) or (array and is_array(x) and is_integer(getattr(np, str(x.dtype))(1)))
+def is_iterable(x): return type(x) in [tuple,set,list,np.ndarray]
+
+def acenter(shape): return np.int_(np.divide(np.subtract(shape, 1), 2))
+
+def cluster(a, n=3): # pair and mean values until only n+1 left
+    def asd(a):
+        dist = np.zeros(a.shape)
+        pada = np.pad(a, (1,1), mode="edge")
+        for idx,x in np.ndenumerate(pada):
+            if 0<idx[0]<=a.shape[0]: dist[idx[0]-1] = pada[idx[0]+1]-pada[idx[0]]
+        return dist[:-1]
+    b = a.copy()
+    while len(dist:=asd(b))>n:
+        i = dist.argmin()
+        b[i+1] = np.mean(b[i:i+2])
+        b = np.concatenate([b[:i], b[i+1:]], axis=0)
+    return b
+
+def totuple(a, ndim=1):
+    if ndim:
+        if is_array(a):
+            ndim = a.ndim
+            a = a.tolist()
+        if type(a) == list: a = map(lambda x: totuple(x, ndim-1) if type(x)==list else x, a)
+        elif type(a) != tuple: return (a,)
+        return tuple(a)
+    return a
+
+
+def trimvalues(a, edgevalue=0):
+    if a.ndim==1: a = np.expand_dims(a, axis=0)
+
+    if not (is_float(edgevalue) or is_integer(edgevalue)):
+        edgevalue = np.array(edgevalue)
+        dims = a.ndim-edgevalue.ndim
+    else: dims = a.ndim
+    slicebase = [slice(0,a.shape[d]) for d in range(dims)]
+    trims = []
+    for d in range(dims):
+        trims.append([0, 0]) # amount of line trimmed per dimension (start,end)
+        s = slicebase.copy()
+        s[d] = 0
+        while 1: # start
+            if (a[tuple(s)]==edgevalue).all():
+                s0 = slicebase.copy()
+                s0[d] = slice(1,a.shape[d])
+                a = a[tuple(s0)]
+                trims[-1][0] += 1
+            else: break
+        s = slicebase.copy()
+        s[d] = -1
+        while 1: # end
+            if (a[tuple(s)]==edgevalue).all():
+                s1 = slicebase.copy()
+                s1[d] = slice(0,-1)
+                a = a[tuple(s1)]
+                trims[-1][1] += 1
+            else: break
+    return a, trims
+
+def getsurroundings(array, i, r=2, pad=True):
+    i = np.array(i)
+    ashape = np.array(array.shape)
+    i = np.mod(i, ashape[:len(i)])
+    r = conformarray(totuple(r), len(i), r)
+    imin = np.clip(np.add(i, -r), a_min=0, a_max=ashape[:len(i)])
+    imax = np.clip(np.add(i, r+1), a_min=0, a_max=ashape[:len(i)])
+    sub = tuple([slice(imin[x],imax[x]) for x in range(len(i))])
+    a = array[sub]
+    if pad:
+        asdf = np.concatenate([np.expand_dims(np.clip(np.add(-i, r), a_min=0, a_max=r), -1), np.expand_dims(np.clip(i+r+1-ashape[:len(i)], a_min=0, a_max=r), -1)], axis=-1)
+        return np.pad(a, np.pad(asdf, ((0,array.ndim-len(i)),(0,0))))
+    return a
+
+## arrayprc ends
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def diffuse(a):
@@ -21,7 +142,7 @@ def imageexpand(a, c=3):
 
 def subimage(array, size=1., point=(0.5, 0.5)): # partial array around a point
     r = np.clip(np.int_(np.multiply(array.shape[:2], size)), a_min=1, a_max=None)
-    refpixel = np.int_(np.multiply(array.shape[:2], point))-arraycenter(r)
+    refpixel = np.int_(np.multiply(array.shape[:2], point))-acenter(r)
     botright = refpixel+r
     return array[refpixel[0]:botright[0], refpixel[1]:botright[1]]
 
@@ -62,83 +183,80 @@ def validifyimage(a, colors=True, alpha=True):
 
 
 def imageresize(path, out, shape):
-    dirs, name, ext = ospck.explode(path)
-    try: img = PILimg.open(path)
-    except: return False
-    shape = shapenormalize(img.size, shape)
-    if getattr(img, "is_animated", False):
-        imgs = []
-        img0 = img.resize(shape)
-        while 1:
-            try: img.seek(img.tell()+1)
-            except: break
-            imgs.append(img.resize(shape))
-        img0.save(out, save_all=True, append_images=imgs, optimize=True, interlace=False, **img.info)
-    else:
-        img = img.resize(shape)
-        if ext=="webp":
-            ext = "jpg"
-            out = out.replace(".webp", ".jpg")
-        if ext in ["jpg","jpeg"]: img.save(out, quality=95, optimize=True, progressive=True)
-        else: img.save(out, optimize=True)
+    dirs, name, ext = explode(path)
+    with PILimg.open(path) as img:
+        shape = shapenormalize(img.size, shape)
+        if getattr(img, "is_animated", False):
+            imgs = []
+            img0 = img.resize(shape)
+            while 1:
+                img.seek(img.tell()+1)
+                imgs.append(img.resize(shape))
+            img0.save(out, save_all=True, append_images=imgs, optimize=True, interlace=False, **img.info)
+        else:
+            img = img.resize(shape)
+            if ext=="webp":
+                ext = "jpg"
+                out = out.replace(".webp", ".jpg")
+            if ext in ["jpg","jpeg"]: img.save(out, quality=95, optimize=True, progressive=True)
+            else: img.save(out, optimize=True)
     return True
 
 
 def gifsave(path, array, **info): return imageio.mimwrite(path, array, **info)
 def save(path, a, **info):
     if a.ndim==4: return gifsave(path, a, **info) 
-    dirs, name, ext = ospck.explode(path)
-    os.makedirs(ospck.implode(dirs), exist_ok=True)
+    dirs, name, ext = explode(path)
+    os.makedirs(implode(dirs), exist_ok=True)
     mode = info.get("mode", "RGBA")
     if not ext: ext = info.get("ext", "png")
-    path = ospck.implode(dirs, name, ext)
+    path = implode(dirs, name, ext)
     a = validifyimage(a.copy(), colors=("RGB" in mode), alpha=("A" in mode))
     if ext=="jpg": PILimg.fromarray(a).save(path, quality=95, optimize=True, progressive=True)
     elif ext=="webp": PILimg.fromarray(a).save(path, format=ext, quality=100, lossless=True, exact=True)
     else: PILimg.fromarray(a).save(path, optimize=True)
 
-def gifload(path, img=None):
-    if os.path.isfile(path):
-        if not img: img = PILimg.open(path)
-        info = img.info
-        img.close()
-        l = imageio.mimread(path)
-        mode = l[0].shape[-1]
-        for i,a in enumerate(l):
-            if a.shape[-1]>mode: l[i] = a[:,:,:mode]
-        return np.asarray(l), info
-    return np.zeros(0, dtype=np.uint8), {}
+
 def load(path):
     if os.path.isfile(path):
-        dirs, name, ext = ospck.explode(path)
-        try: img = PILimg.open(path)
-        except: return np.zeros(0, dtype=np.uint8), {}
-        mode = img.mode
-        if getattr(img, "is_animated", False): return gifload(path, img)
-        if ext in ["tif","tiff"]: ext = "tif"
-        elif ext in ["png","tga"]: ext = "png"
-        elif ext in ["jpeg","jpg","webp"]: ext = "jpg" # rgb
-        elif ext in ["pgm","xbm"]: ext = "jpg" # 8/16-bit greyscale
-        elif ext in ["pbm"]: # 1-bit greyscale
-            mode = "1"
-            ext = "png"
-        elif ext in ["ppm"]: # 24-bit
-            mode = "RGB"
-            ext = "bmp"
-        else: return np.zeros(0, dtype=np.uint8), {}
-        if mode=="P":
-            mode = "RGBA" if img.has_transparency_data else "RGB"
-            img = img.convert(mode)
-        elif mode=="PA":
-            mode = "RGBA"
-            img = img.convert(mode)
-        if mode in ["LA","RGBA"] and ext == "jpg": ext = "png"
-        a = np.asarray(img, dtype=np.uint8)
-        info = {
-            "mode": mode,
-            "ext": ext,
-            }
-        return a, info
+        dirs, name, ext = explode(path)
+        ext = ext.lower()
+        with PILimg.open(path) as img:
+            mode = img.mode
+            if getattr(img, "is_animated", False):
+                l = imageio.mimread(path)
+                mode = l[0].shape[-1]
+                for i,a in enumerate(l):
+                    if a.shape[-1]>mode: l[i] = a[:,:,:mode]
+                return np.asarray(l), img.info
+            else:
+                if ext in ["tif","tiff"]: ext = "tif"
+                elif ext in ["png","tga"]: ext = "png"
+                elif ext in ["ico"]: pass
+                elif ext in ["jpeg","jpg","webp"]: ext = "jpg" # rgb
+                elif ext in ["pgm","xbm"]: ext = "jpg" # 8/16-bit greyscale
+                elif ext in ["pbm"]: # 1-bit greyscale
+                    mode = "1"
+                    ext = "png"
+                elif ext in ["ppm"]: # 24-bit
+                    mode = "RGB"
+                    ext = "bmp"
+                else:
+                    img.close()
+                    return np.zeros(0, dtype=np.uint8), {}
+                if mode=="P":
+                    mode = "RGBA" if img.has_transparency_data else "RGB"
+                    img = img.convert(mode)
+                elif mode=="PA":
+                    mode = "RGBA"
+                    img = img.convert(mode)
+                if mode in ["LA","RGBA"] and ext == "jpg": ext = "png"
+                a = np.asarray(img, dtype=np.uint8)
+                info = {
+                    "mode": mode,
+                    "ext": ext,
+                    }
+                return a, info
     return np.zeros(0, dtype=np.uint8), {}
 
 
@@ -182,7 +300,7 @@ def imagetrimmer(a, edgevalue=None): # autofind & trim edgevalues from a 2D/3D a
             if len(edgevalue) != a.shape[2]: edgevalue = None
             else: edgevalue = totuple(edgevalue)
         else: edgevalue = None
-    elif a.ndim ==2 and not (is_int(edgevalue) or is_float(edgevalue)): edgevalue = None # type(edgevalue) in [int,float]
+    elif a.ndim ==2 and not (is_integer(edgevalue) or is_float(edgevalue)): edgevalue = None # type(edgevalue) in [int,float]
     if edgevalue==None: # search for the edgevalue
         slicebase = [slice(0,a.shape[d]) for d in range(2)]
         alledgevalues = []

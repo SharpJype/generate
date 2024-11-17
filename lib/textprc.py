@@ -1,15 +1,45 @@
+import os
 import re
 import random
-import arrayprc
+import numpy as np
 from io import FileIO
-import os
 import textprc_syllables as syllables
 
-##from patricia import trie
-##def autocomplete(prefix, strings): # extremely fast autocomplete check
-##    strings_dict = {s:0 for s in strings}
-##    strings_trie = trie(**strings_dict)
-##    return list(strings_trie.iter(prefix))
+## from arrayprc
+def is_float(x, array=True): return type(x)==float or isinstance(x, np.floating) or (array and is_array(x) and is_float(getattr(np, str(x.dtype))(1)))
+def is_integer(x, array=True): return type(x)==int or isinstance(x, np.integer) or (array and is_array(x) and is_integer(getattr(np, str(x.dtype))(1)))
+
+def floatrng(a, acc=2): return rng([int((1-a)*10**acc),int(a*10**acc)])
+
+def rng(chances, seed=None):
+    if is_integer(chances, False) or is_float(chances, False): chances = [1,chances]
+    a = np.cumsum(chances)
+    if seed is None: f = np.random.random(1)
+    elif is_integer(seed): f = np.random.default_rng(seed).random(1)
+    else: f = seed.random(1)
+    return (a<(f*a[-1])[0]).sum()
+def rng_bulk(chances, n=1, count=False, seed=None):
+    if is_integer(chances, False) or is_float(chances, False): chances = [1,chances]
+    a = np.expand_dims(np.cumsum(chances), axis=0)
+    if seed is None: f = np.random.random((n,1))
+    elif is_integer(seed): f = np.random.default_rng(seed).random((n,1))
+    else: f = seed.random((n,1))
+    b = f*a.max()
+    c = np.sum((a>b).astype(np.int64), axis=1)
+    if c.any(): c = len(chances)-c
+    if count:
+        observedchances = np.zeros(a.size)
+        for i in range(a.size): observedchances[i] += np.sum(c==i)
+        return c, observedchances
+    return c
+
+def dictrng(d, amount=1): # treat a dict of floats/integers as a chance list
+    return (np.array(list(d.keys()))[rng_bulk(list(d.values()), amount)]).tolist()
+## arrayprc ends
+
+
+
+
 
 linebreaks = [u"\u000A",u"\u000B",u"\u000C",u"\u000D"] # standard newline, vertical tab, form feed, carriage return
 whitespaces = [
@@ -22,11 +52,9 @@ def spacefix(string, x=" "): # replace any whitespace-like character with x
     return re.sub("["+"".join(whitespaces)+"]", x, string)
 def linefix(string, x="\n"): # replace linebreaks with x
     return re.sub("["+"".join(linebreaks)+"]", x, string)
-def is_number(x):
-    try:
-        float(x)
-        return True
-    except ValueError: return False
+
+def is_a_value(x:str): # is_number
+    return bool(re.match(r'^\s*(?:\d+\.?\d*|\d*\.?\d+)\s*$', x))
 
 
 
@@ -179,39 +207,39 @@ ja_combosounds.extend([("ja",u"\u3058\u3083",u"\u30B8\u30E3"),("ju",u"\u3058\u30
 
 def randomword_ja(l=5):
     def modif(x, double, n):
-        if arrayprc.floatrng(double) and x[0] in "stkpnm": x = x[0]+x
-        if arrayprc.floatrng(n): x = x+"n"
-        elif arrayprc.floatrng(n): x = x+x[-1]
+        if floatrng(double) and x[0] in "stkpnm": x = x[0]+x
+        if floatrng(n): x = x+"n"
+        elif floatrng(n): x = x+x[-1]
         return x
-    def choice(): return random.choice(ja_combosounds if arrayprc.floatrng(0.2) else ja_sounds)
+    def choice(): return random.choice(ja_combosounds if floatrng(0.2) else ja_sounds)
     word = choice()[0]
     for i in range(l): word += modif(choice()[0], 0.1, 0.1)
     return word
 def randomword_jah(l=5):
     def modif(x, double, n):
-        if arrayprc.floatrng(double):
+        if floatrng(double):
             if x[0] in "stkp": x = u"\u3063"+x
             elif x[0]=="n": x = u"\u3093"+x # n
-        if arrayprc.floatrng(n): x = x+u"\u3093"
-        elif arrayprc.floatrng(n) and not x[-1] in u"\u3083\u3086\u3088": x = x+x[-1]
-        elif arrayprc.floatrng(n): x = x+u"\u30FC" # prolonged sound
+        if floatrng(n): x = x+u"\u3093"
+        elif floatrng(n) and not x[-1] in u"\u3083\u3086\u3088": x = x+x[-1]
+        elif floatrng(n): x = x+u"\u30FC" # prolonged sound
         return x
-    def choice(): return random.choice(ja_combosounds if arrayprc.floatrng(0.2) else ja_sounds)
+    def choice(): return random.choice(ja_combosounds if floatrng(0.2) else ja_sounds)
     word = choice()[1]
     for i in range(l): word += modif(choice()[1], 0.1, 0.1)
     return word
 def randomword_jak(l=5):
     def modif(x, double, n):
-        if arrayprc.floatrng(double):
+        if floatrng(double):
             if x[0] in "stkp": x = u"\u30C3"+x # small tsu
             elif x[0]=="n": x = u"\u30F3"+x # n
             elif x[0]=="m": x = u"\u30E0"+x # mu
             elif x[0]=="w": x = u"\u30A5"+x # small u
-        elif arrayprc.floatrng(n): x = x+u"\u30F3"
-        elif arrayprc.floatrng(n) and not x[-1] in u"\u30E3\u30E6\u30E8": x = x+x[-1]
-        elif arrayprc.floatrng(n): x = x+u"\u30FC" # prolonged sound
+        elif floatrng(n): x = x+u"\u30F3"
+        elif floatrng(n) and not x[-1] in u"\u30E3\u30E6\u30E8": x = x+x[-1]
+        elif floatrng(n): x = x+u"\u30FC" # prolonged sound
         return x
-    def choice(): return random.choice(ja_combosounds if arrayprc.floatrng(0.2) else ja_sounds)
+    def choice(): return random.choice(ja_combosounds if floatrng(0.2) else ja_sounds)
     word = choice()[2]
     for i in range(l): word += modif(choice()[2], 0.1, 0.1)
     return word
@@ -237,7 +265,7 @@ def latin_hiragana(string):
         string = string.replace(x, hx)
     for x,hx,kx in ja_sounds[:5]: string = string.replace(x, hx)
     return string.replace("n", u"\u3093")
-def latin_katakana(string): # alpha2katakana
+def latin_katakana(string):
     findings = re.findall(u"(?:aa)|(?:ii)|(?:uu)|(?:ee)|(?:oo)", string) # [aiueo]
     for x in findings: string = string.replace(x, x[0]+u"\u30FC")
     findings = re.findall(u"(?:ww[aiueo])", string)
@@ -257,12 +285,12 @@ def randomstring_word(l=5, lan="en"): # word-like string
     elif lan=="jak": word = randomword_jak(l-1)
     else:
         soft = list(zip(*[x for x in letterfrequencies[lan] if x[0] in vowels]))
-        soft = "".join(arrayprc.np.array(soft[0])[arrayprc.rng_bulk(soft[1], 100)].tolist())
+        soft = "".join(np.array(soft[0])[rng_bulk(soft[1], 100)].tolist())
         hard = list(zip(*[x for x in letterfrequencies[lan] if x[0] in consonants]))
-        hard = "".join(arrayprc.np.array(hard[0])[arrayprc.rng_bulk(hard[1], 100)].tolist())
+        hard = "".join(np.array(hard[0])[rng_bulk(hard[1], 100)].tolist())
         if 0: # lan in additionalconsonants:
             special = list(zip(*[x for x in letterfrequencies[lan] if x[0] in consonants]))
-            special = "".join(arrayprc.np.array(special[0])[arrayprc.rng(special[1], 100)].tolist())
+            special = "".join(np.array(special[0])[rng(special[1], 100)].tolist())
         else: special = ""
         word = artificialword(l, soft, hard, special)
         for x in re.findall("[^"+vowels+"]*(["+vowels+"]{3,})[^"+vowels+"]*", word): word = word.replace(x, x[:2]) # squeeze triple vowels
@@ -340,13 +368,11 @@ def fantasyfinnish(word): # modification
 def randomword(l, lan="en"):
     l = max(int(l), 1) if l else 1
     def get_syllables():
-        if l>0 and (s:=getattr(syllables, lan, None)): return "".join(arrayprc.dictrng(s, l))
+        if l>0 and (s:=getattr(syllables, lan, None)): return "".join(dictrng(s, l))
         return ""
     if lan=="fi": return fantasyfinnish(get_syllables())
-    elif lan=="en": return get_syllables()
-    else:
-        return randomstring_word(l, lan)
-##        except: return "?"
+    if lan=="en": return get_syllables()
+    return randomstring_word(l, lan)
 
 
 
@@ -355,18 +381,18 @@ def randomword(l, lan="en"):
 
 def adj_adv(x): # adverb from adjective
     if re.match(".*ic$", x): return re.sub("ic$", "ically", x)
-    elif re.match(".*used$", x): return x
-    elif re.match(".*y$", x): return re.sub("y$", "ily", x)
-    elif re.match(".*[bt]le$", x): return re.sub("[bt]le$", "bly", x) # acceptable -> acceptably
-    elif re.match(".*ll$", x): return None
-    else: return x+"ly" # ous/ing/ane
+    if re.match(".*used$", x): return x
+    if re.match(".*y$", x): return re.sub("y$", "ily", x)
+    if re.match(".*[bt]le$", x): return re.sub("[bt]le$", "bly", x) # acceptable -> acceptably
+    if re.match(".*ll$", x): return None
+    return x+"ly" # ous/ing/ane
 def adv_adj(x): # adjective from adverb
     if re.match(".*ically$", x): return re.sub("ically$", "ic", x)
-    elif re.match(".*used$", x): return x
-    elif re.match(".*ily$", x): return re.sub("ily$", "y", x)
-    elif re.match(".*[bt]ly$", x): return re.sub("[bt]ly$", "ble", x)
-    elif re.match(".*ll$", x): return None
-    else: return re.sub("ly$", "", x)
+    if re.match(".*used$", x): return x
+    if re.match(".*ily$", x): return re.sub("ily$", "y", x)
+    if re.match(".*[bt]ly$", x): return re.sub("[bt]ly$", "ble", x)
+    if re.match(".*ll$", x): return None
+    return re.sub("ly$", "", x)
 
 
 
@@ -478,7 +504,7 @@ def int_progress(x, y, l=10, chars="x "):
 
 
 
-def romannumerals(x):
+def romannumerals(x): # VL -> 45 -> VL
     if type(x)==int:
         t = ""
         for char,val in [("M", 1000),("D", 500),("C", 100),("L", 50),("X", 10),("V", 5),("I", 1)]:
@@ -683,20 +709,22 @@ def read_morse(t):
             if not x in ".-": break
             x = x=="."
             if not l: l = "e" if x else "t"
-            elif l=="e": l = "i" if x else "a"
-            elif l=="i": l = "s" if x else "u"
-            elif l=="s": l = "h" if x else "v"
-            elif l=="u": l = "f" if x else ""
-            elif l=="a": l = "r" if x else "w"
-            elif l=="r": l = "l" if x else ""
-            elif l=="w": l = "p" if x else "j"
-            elif l=="t": l = "n" if x else "m"
-            elif l=="n": l = "d" if x else "k"
-            elif l=="d": l = "b" if x else "x"
-            elif l=="k": l = "c" if x else "y"
-            elif l=="m": l = "g" if x else "o"
-            elif l=="g": l = "z" if x else "q"
-            else: break
+            else:
+                match l:
+                    case "e": l = "i" if x else "a"
+                    case "i": l = "s" if x else "u"
+                    case "s": l = "h" if x else "v"
+                    case "u": l = "f" if x else ""
+                    case "a": l = "r" if x else "w"
+                    case "r": l = "l" if x else ""
+                    case "w": l = "p" if x else "j"
+                    case "t": l = "n" if x else "m"
+                    case "n": l = "d" if x else "k"
+                    case "d": l = "b" if x else "x"
+                    case "k": l = "c" if x else "y"
+                    case "m": l = "g" if x else "o"
+                    case "g": l = "z" if x else "q"
+                    case _: break
         return l.upper()
     tt = ""
     mem = ""
@@ -748,7 +776,7 @@ def write_morse(t):
 
 
 
-def base_email(email):
+def base_email(email:str):
     if "@" in email:
         name, domain = email.split("@", 1)
         if "." in domain:
@@ -757,6 +785,11 @@ def base_email(email):
 
 
 if __name__ == "__main__":
+##    for x in ["a",1,"1","2.1.3","5.123"]:
+##        print(x)
+##        print(is_number(x))
+##        print(is_a_value(str(x)), end="\n"*2)
+    
 ##    print(base_email("jyj..o+ol10@gmail.com"))
     
 ##    t = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -809,7 +842,7 @@ if __name__ == "__main__":
 ##    y = integer(y)
 ##    print(x, y)
     
-##    y = romannumerals(47)
+##    y = romannumerals(45)
 ##    print(y)
     
 ##    for i in range(10):

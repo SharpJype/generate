@@ -55,6 +55,8 @@ def multi_thread(start, end, threads=4):
     
     basename = __file__.rsplit(os.path.sep, 1)[1]
     filename = basename.rsplit(".", 1)[0]
+    path = os.path.join(".", filename)
+    print("writing to dir:", path)
     
     threads_list = []
     for i in range(threads): threads_list.append(symbpck.single())
@@ -63,19 +65,18 @@ def multi_thread(start, end, threads=4):
     per_thread = length//threads
     
     for i,subrange in enumerate(range_to_subranges(start, end, threads)):
-        path = os.path.join(".", filename)
         threads_list[i].start(primerun, subrange[0], subrange[1], path, f"multi{i}")
 
     i = 0
     is_done = np.zeros(threads, dtype=np.bool_)
-    print(f"{0:3d} % {is_done.astype(np.uint8)}", end="\r")
+    print(f"{0:3d} % done {is_done.astype(np.uint8)}", end="\r")
     while 1:
         if not is_done[i]:
             threads_list[i].poll()
             if threads_list[i].done:
                 is_done[i] = True
                 percent = int((is_done.sum()/is_done.shape[0])*100)
-                print(f"{percent:3d} % {is_done.astype(np.uint8)}", end="\r")
+                print(f"{percent:3d} % done {is_done.astype(np.uint8)}", end="\r")
         if is_done.all(): break
         i += 1
         if i%threads==0:
@@ -84,9 +85,6 @@ def multi_thread(start, end, threads=4):
     print("100 %")
     
 if __name__ == "__main__":
-##    for subrange in range_to_subranges(1000, 2000, 2):
-##        print(subrange)
-    
     a = int(float(input("start number: ")))
     b = int(float(input("end number: ")))
     threads = int(float(input("amount of threads: ")))
@@ -96,6 +94,7 @@ if __name__ == "__main__":
     else:
         basename = __file__.rsplit(os.path.sep, 1)[1]
         path = os.path.join(".", basename.rsplit(".", 1)[0])
+        print("writing to dir:", path)
         primerun(a, b, path, "singlethread", printing=True)
     print(*timepck.datetime())
     input("\ndone!")

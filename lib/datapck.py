@@ -1,7 +1,6 @@
 import os
 import random
 import numpy as np
-import ospck
 import types
 from io import FileIO
 import collections as cl
@@ -10,46 +9,44 @@ import pickle
 
 from base64 import encodebytes as bs64enc
 from base64 import decodebytes as bs64dec
-from dataclasses import dataclass, field
+##from dataclasses import dataclass, field
+
+import ospck
 
 
-def load(path, default=None, makedirs=True, can_fail=True):
+def load(path, default=None, makedirs=True):
     if makedirs: ospck.makedirs(path)
     if os.path.isfile(path):
-        f = open(path, "rb")
-        if can_fail:
+        with open(path, "rb") as f:
             try: obj = pickle.load(f)
-            except: obj = default
-        else: obj = pickle.load(f)
-        f.close()
+            except TypeError: obj = default
+            except pickle.UnpicklingError: obj = default
         return obj
     return default
 def save(path, obj):
     ospck.makedirs(path)
-    f = open(path, "wb")
-    pickle.dump(obj, f)
-    f.close()
+    with open(path, "wb") as f:
+        pickle.dump(obj, f)
+
     
 def filecopy_gen(read, write, buffer=4096, fraction=True, report_buffer=None):
     size = os.path.getsize(read)
     size_running = 0
     ospck.makedirs(write)
-    wf = open(write, "wb")
-    rf = open(read, "rb")
-    if report_buffer is None: report_buffer = buffer
-    while len(b:=rf.read(buffer)):
-        wf.write(b)
-        size_running += len(b)
-        if size_running>=report_buffer:
-            if fraction: yield size_running/size
-            else:
+    with open(write, "wb") as wf:
+        with open(read, "rb") as rf:
+            if report_buffer is None: report_buffer = buffer
+            while len(b:=rf.read(buffer)):
+                wf.write(b)
+                size_running += len(b)
+                if size_running>=report_buffer:
+                    if fraction: yield size_running/size
+                    else:
+                        yield size_running
+                        size_running = 0
+            if not fraction and size_running:
                 yield size_running
                 size_running = 0
-    if not fraction and size_running:
-        yield size_running
-        size_running = 0
-    rf.close()
-    wf.close()
 def filecopy(*args, **kwargs):
     for x in filecopy_gen(*args, **kwargs): pass
 
@@ -109,19 +106,17 @@ def is_valid_txt(path): return path.endswith(".txt") and os.path.isfile(path)
 
 
 def read_txt_lines(path, encoding="utf8", **kwargs):
-    f = open(path, "r", encoding=encoding, **kwargs)
-    while 1:
-        line = f.readline()
-        if not line: break # end of file
-        yield line
-    f.close()
-def read_txt(path, buffer=None, **kwargs):
-    f = open(path, "r", **kwargs)
-    while 1:
-        chars = f.read(buffer)
-        if not chars: break # end of file
-        yield chars
-    f.close()
+    with open(path, "r", encoding=encoding, **kwargs) as f:
+        while 1:
+            line = f.readline()
+            if not line: break # end of file
+            yield line
+def read_txt(path, buffer=None, encoding="utf8", **kwargs):
+    with open(path, "r", encoding=encoding, **kwargs) as f:
+        while 1:
+            chars = f.read(buffer)
+            if not chars: break # end of file
+            yield chars
 
 
 
@@ -163,18 +158,11 @@ def is_integer(x, *args, **kwargs): return is_int(x, *args, **kwargs)
 def filesave(path, x): # save bytes as a file
     directory = ospck.implode(ospck.explode(path)[0])
     os.makedirs(directory, exist_ok=True)
-    try:
-        f = FileIO(path, "w")
+    with FileIO(path, "w") as f:
         f.write(x)
-        f.close()
-    except: return False
 def fileload(path): # load any file as a bytes
-    try:
-        f = FileIO(path, "r")
-        x = f.read()
-        f.close()
-        return x
-    except: return None
+    with FileIO(path, "r") as f:
+        return f.read()
 
 def pcksave2dictsave(path): dictsave(path, pckload(path))
 def dictsave2pcksave(path): pcksave(path, dictload(path))
@@ -257,7 +245,6 @@ def bytes2str(b, enc="utf8"): return str(b, enc)
 def strsave(path, s, enc="utf8"): filesave(path+".str", bytes(s, enc))
 def strload(path, enc="utf8"):
     if os.path.exists(path+".str"): return str(fileload(path+".str"), enc)
-
     
 def floatsave(path, f): filesave(path+".float", bytes(str(f), "utf8"))
 def floatload(path):
@@ -490,8 +477,8 @@ def listsearch_b(x, l, start=0, end=None, wordlen=1): # return indexes of x in l
 
 
 
-def dict2xml(path, d):
-    f = open(path+".xml", "w")
+def dict2xml(path, d, encoding="utf8"):
+    f = open(path+".xml", "w", encoding=encoding)
     f.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
     def recur(x, depth=0):
         f.write("\n")
@@ -505,8 +492,8 @@ def dict2xml(path, d):
     recur(d)
     f.close()
 
-def xml2dict(path):
-    f = open(path+".xml", "r")
+def xml2dict(path, encoding="utf8"):
+    f = open(path+".xml", "r", encoding=encoding)
     dpath = []
     d = {}
     text = f.read()
@@ -514,7 +501,7 @@ def xml2dict(path):
     endstreak = 0
     while 1:
         try: i = text.index(">")
-        except: break
+        except ValueError: break
         t = text[:i+1]
         text = text[i+1:]
         if t[1]=="?": continue
@@ -933,6 +920,8 @@ class dictarray(): # combined dict & array
     def array(self): return self.a.copy()
     def keys(self): return np.array(self.k)
     def values(self): return self.a
+
+
 
 
 
@@ -1653,9 +1642,344 @@ def reverse(l, start=0, end=None):
         ii = end-(i-start)-1
         if ii<=i: break
         l[i], l[ii] = l[ii], l[i]
+
+
+
+
+
+
+
+
+
+class LinkedList():
+    head = None
+    tail = None
+    length = 0
+    reverse = False
+    class Node():
+        def __init__(self, data):
+            self.data = data
+            self.next = None
+            self.prev = None
+
+    def __len__(self): return self.length
+
+    def __init__(self, data=None):
+        if hasattr(data, "__iter__"):
+            for d in data: self.append(d)
+        elif data is not None: self.head = self.Node(data)
+
+    def __insert_before(self, node, data):
+        new_node = self.Node(data)
+        new_node.next = node
+        new_node.prev = node.prev
+        if node.prev is not None: node.prev.next = new_node
+        node.prev = new_node
+        self.length += 1
+        return new_node
         
+    def __insert_after(self, node, data):
+        new_node = self.Node(data)
+        new_node.prev = node
+        new_node.next = node.next
+        if node.next is not None: node.next.prev = new_node
+        node.next = new_node
+        self.length += 1
+        return new_node
+
+    def print_node(self, node):
+        print(id(node))
+        print("\t", id(node.prev) if node.prev is not None else None)
+        print("\t", id(node.next) if node.next is not None else None)
+
+    def append(self, data):
+        if self.length>0:
+            if self.reverse: self.head = self.__insert_before(self.head, data)
+            else: self.tail = self.__insert_after(self.tail, data)
+        else:
+            self.head = self.Node(data)
+            self.tail = self.head
+            self.length = 1
+
+    def insert(self, index, data):
+        if index<0: index += self.length+1
+        if index==self.length: self.append(data)
+        elif 0<=index<self.length:
+            if self.reverse!=(index<(self.length>>1)):
+                node = self.head
+                for _ in range(index): node = node.next
+                new_node = self.__insert_before(node, data)
+                if node is self.head: self.head = new_node
+            else:
+                node = self.tail
+                for _ in range(self.length-index-1): node = node.prev
+                new_node = self.__insert_after(node, data)
+                if node is self.tail: self.tail = new_node
+        else:
+            raise IndexError
+
+    def pop(self, index=None):
+        if self.length==0: return
+        if index is None: index = self.length-1
+        elif index<0: index += self.length+1
+        if 0<=index<self.length:
+            if index<(self.length>>1):
+                node = self.head
+                for _ in range(index):
+                    node = node.next
+            else:
+                node = self.tail
+                for _ in range(self.length-index-1):
+                    node = node.prev
+            if node.prev is not None: node.prev.next = node.next
+            if node.next is not None: node.next.prev = node.prev
+            if node is self.head: self.head = node.next
+            if node is self.tail: self.tail = node.prev
+            self.length -= 1
+            return node.data
+        else:
+            raise IndexError
+
+    def clear(self):
+        self.length = 0
+        if self.tail is not None:
+            node = self.tail
+            while node.prev is not None:
+                node = node.prev
+                node.next.prev = None
+                node.next = None
+            self.head = self.tail = None
+
+    def __iter__(self):
+        node = self.tail if self.reverse else self.head
+        while node is not None:
+            yield node.data
+            node = node.prev if self.reverse else node.next
+
+
+    
+        
+        
+class IntTable():
+    # memory = O(3n)
+    # store values & argsort per column
+    capacity = 8
+    length = 0
+    dtype = np.int64
+    index_dtype = np.int64
+    reversed = False
+    sort_column = -1
+    
+    def __init__(self, capacity, width):
+        self.capacity = int(capacity)
+        self.current_sort_order = np.zeros(self.capacity, dtype=self.index_dtype)
+        self.value_array = np.zeros((self.capacity,width), dtype=self.dtype)
+        self.argsort_array = np.zeros((self.capacity,width), dtype=self.index_dtype)
+        self.sorted_values = np.zeros((self.capacity,width), dtype=self.dtype)
+        self.clear_sort()
+
+    def find_new_index_recur(self, sorted_values, value, start, end):
+        mid = (end-start)//2+start
+        if sorted_values[mid]==value: return mid+1
+        if sorted_values[mid]<value:
+            if (mid+1)>=end: return end
+            return self.find_new_index_recur(sorted_values, value, mid, end)
+        if start==mid: return start
+        return self.find_new_index_recur(sorted_values, value, start, mid)
+
+    def is_full(self): return self.length==self.capacity
+    def is_empty(self): return self.length==0
+    
+    def insert(self, *values):
+        if len(values)!=self.value_array.shape[1] or self.is_full(): return False
+        for i in range(self.value_array.shape[1]):
+            value_array = self.value_array[:self.length+1,i]
+            argsort_array = self.argsort_array[:self.length+1,i]
+            sorted_values = self.sorted_values[:self.length+1,i]
+            value_array[self.length] = values[i]
+            if not self.is_empty():
+                new_index = self.find_new_index_recur(sorted_values, values[i], 0, self.length)
+                argsort_array[new_index+1:self.length+1] = argsort_array[new_index:self.length]
+                sorted_values[new_index+1:self.length+1] = sorted_values[new_index:self.length]
+                argsort_array[new_index] = self.length
+                sorted_values[new_index] = values[i]
+            else:
+                argsort_array[0] = 0
+                sorted_values[0] = values[i]
+        self.current_sort_order[self.length] = self.length
+        self.length += 1
+        return True
+
+    def replace(self, index, *values, sorted=True):
+##        if self.is_empty(): return False
+##        l = self.length
+##        print("replace")
+##        if sorted: index = self.current_sort_order[:l][index]
+##        for i in range(self.value_array.shape[1]):
+##            value_array = self.value_array[:l,i]
+##            argsort_array = self.argsort_array[:l,i]
+##            sorted_values = self.sorted_values[:l,i]
+##
+##            old_index = argsort_array[index]
+##            if value_array[index]>values[i]:
+##                new_index = self.find_new_index_recur(sorted_values[:old_index+1], values[i], 0, old_index+1)
+####            elif self.length>old_index:
+##            else:
+##                new_index = old_index+self.find_new_index_recur(sorted_values[old_index:], values[i], 0, self.length-old_index)
+####            else: new_index = old_index
+##            print(old_index, new_index)
+##            
+##            value_array[index] = values[i]
+##            argsort_array[index] = new_index
+##            sorted_values[index] = values[i]
+##
+####            if i==self.sort_column:
+####                self.current_sort_order[index] = new_index
+        return True
+
+    def clear_sort(self):
+        self.current_sort_order = np.zeros(self.capacity, dtype=self.index_dtype)
+        self.current_sort_order[:self.length] = np.arange(self.length, dtype=self.index_dtype)
+
+    def calc_sort(self):
+        for i in range(self.value_array.shape[1]):
+            value_array = self.value_array[:self.length,i]
+            argsort_array = np.argsort(value_array)
+            self.argsort_array[:self.length,i] = argsort_array
+            self.sorted_values[:self.length,i] = value_array[argsort_array]
+        
+    def sort(self, column=0):
+        self.sort_column = column
+        argsort_array = self.argsort_array[:self.length, column]
+        self.current_sort_order[:self.length] = self.current_sort_order[:self.length][argsort_array]
+
+    def show(self, index=0, amount=10):
+        return self.value_array[:self.length][self.current_sort_order[:self.length][::((1-self.reversed)*2-1)]][index:(index+amount)]
+    
+    def get(self, index=None):
+        if index is None: index = self.length-1
+        elif self.length==0 or index<0 or index>=self.length: return
+        return self.value_array[:self.length][index]
+
+    def pop(self, index=None):
+        if index is None: index = self.length-1
+        if self.is_empty() or index<0 or index>=self.length: return
+
+        popped = self.value_array[:self.length][index].copy()
+        self.value_array[index:self.length] = self.value_array[index+1:self.length+1]
+        self.argsort_array[index:self.length] = self.argsort_array[index+1:self.length+1]
+        self.sorted_values[index:self.length] = self.sorted_values[index+1:self.length+1]
+
+        self.current_sort_order[self.current_sort_order>=index] -= 1
+        self.current_sort_order[index:self.length] = self.current_sort_order[index+1:self.length+1]
+        self.length -= 1
+        return popped
+
 
 if __name__ == "__main__":
+####    it = IntTable(1e6, 3)
+######    def test_print():
+######        print(it.a_values[it.a_argsort[:it.length]])
+######        print(it.b_values[it.b_argsort[:it.length]])
+######        print(it.c_values[it.c_argsort[:it.length]])
+####    l = []
+####    import random
+####    import timepck
+####    
+####    n = 100000
+####    t_start = timepck.nspec()
+####    for i in range(n):
+######        l.append((random.randint(0, 10000), random.randint(0, 10000), random.randint(0, 10000)))
+####        it.insert(random.randint(0, 10000), random.randint(0, 10000), random.randint(0, 10000))
+####    t_end = timepck.nspec()-t_start
+####    print(t_end // int(1e6), t_end//n)
+####
+####    t_start = timepck.nspec()
+####    it.sort(0)
+######    ll = sorted(l, key=lambda x:x[0])
+####    t_end = timepck.nspec()-t_start
+####    print(t_end // int(1e6), t_end//n)
+    
+##    print(it.get(0))
+##    it.replace(5, 10,10,10)
+####    it.sort(0)
+####    it.calc_sort()
+##    print(it.show(0, 10))
+####    it.clear_sort()
+####    it.calc_sort()
+####    it.sort(0)
+####    print(it.show(0, 10))
+    
+##    t_start = timepck.nspec()
+##    it.calc_sort()
+##    it.sort(2)
+##    t_end = timepck.nspec()-t_start
+##    print(t_end // int(1e6), t_end//n)
+    
+##    t_start = timepck.nspec()
+##    it.reversed = True
+##    result = it.show(0, 20)
+##    t_end = timepck.nspec()-t_start
+##    print(t_end // int(1e6), t_end//n)
+##    print(result)
+    
+##    print(it.get(10))
+##    print(it.pop(10))
+##    print(it.get())
+##    print(it.pop())
+##    print(it.get(0))
+##    print(it.pop(0))
+##    print(it.get(0))
+##    print(it.pop(0))
+
+    
+##    import timepck
+##
+##    ll = LinkedList()
+##    l = []
+##
+##    @timepck.func_timer_decor
+##    def test(func, amount):
+##        for i in range(int(amount)):
+##            func(i)
+##            
+##    @timepck.func_timer_decor
+##    def test_reverse(func, amount):
+##        for i in range(int(amount)-1, -1, -1):
+##            func(i)
+##
+##    n = 1e6
+##    test(l.append, n)
+##    test_reverse(l.pop, n)
+##    
+##    test(ll.append, n)
+##    test_reverse(ll.pop, n)
+    
+    
+######    
+########    ll.append(1)
+########    ll.append(2)
+########    ll.append(3)
+########    ll.append(4)
+########    ll.append(5)
+######    
+######    ll.insert(-1, 2)
+######    ll.insert(-1, 3)
+######    ll.insert(-1, 4)
+######    ll.insert(-1, 1)
+######    
+########    for i in range(5):
+########        print(i)
+########        ll.insert(0, i*10)
+######    print("")
+########    ll.reverse = False
+######    for i,v in enumerate(ll):
+######        print(i,v)
+########    print("")
+########    for i in [x for x in ll]:
+########        print(ll.pop())
+
+    
 ##    import json
 ##    from timepck import nspec
 ##    t_start = nspec()
