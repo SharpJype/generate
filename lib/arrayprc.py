@@ -207,13 +207,9 @@ def peakrng(flatness, steps=101):
     a = np.random.randint(1, steps+1, flatness).sum()
     return 1-abs((a-flatness)/(steps*flatness-flatness)-.5)*2 # 0...1
 
-##def findr(points, space, array): # translate points in 2d space (upleft)->(bottomright) into elements in a 2D array
-##    # x==0..array.shape[1]; y==0..array.shape[0]
-##    a = around(np.divide(np.flip(np.array(points).reshape(-1,2), axis=1), np.flip(space))*np.subtract(array.shape, 1))
-##    return array[tuple(zip(*(np.clip(a, a_min=0, a_max=np.subtract(array.shape, 1))).astype(np.uint16).tolist()))]
-
 def findr(points, space, array): # translate points in 2d space (upleft)->(bottomright) into elements in a 2D array
-    indexes = np.clip(np.multiply(np.divide(points, [space]), [array.shape]).astype(np.int_), a_min=0, a_max=np.subtract(array.shape, 1))
+    indexes = np.multiply(np.divide(points, np.expand_dims(space, axis=0)), np.expand_dims(array.shape, axis=0))
+    indexes = np.clip(indexes.astype(np.int64), a_min=0, a_max=np.subtract(array.shape, 1))
     return array[*indexes.swapaxes(0, 1)]
 
 
@@ -364,13 +360,13 @@ def offset_heading(x):
 def cardinal_heading(x):
     x = x.lower()
     if x in ["north","n"]: return 0
-    elif x in ["east","e"]: return 90
-    elif x in ["south","s"]: return 180
-    elif x in ["west","w"]: return 270
-    elif x in ["northwest","nw"]: return 315
-    elif x in ["northeast","ne"]: return 45
-    elif x in ["southeast","se"]: return 135
-    elif x in ["southwest","sw"]: return 225
+    if x in ["east","e"]: return 90
+    if x in ["south","s"]: return 180
+    if x in ["west","w"]: return 270
+    if x in ["northwest","nw"]: return 315
+    if x in ["northeast","ne"]: return 45
+    if x in ["southeast","se"]: return 135
+    if x in ["southwest","sw"]: return 225
 def heading_cardinal(h):
     i = nearestvalue_i([0,90,180,270,315,45,135,225,360], heading_absolute(h))
     return ["north","east","south","west","northwest","northeast","southeast","southwest","north"][i]
@@ -414,21 +410,25 @@ def totuple(a, ndim=1):
 
 
 
-def crossndenumerate(a, odd=False): return [(idx,x) for idx,x in np.ndenumerate(a) if (sum(idx)+1 if odd else sum(idx))%2==0]
-def overlap(anchor_a, anchor_b, array_a, array_b): # get overlapping slices from arrays
+def crossndenumerate(a, odd=False):
+    return [(idx,x) for idx,x in np.ndenumerate(a) if (sum(idx)+1 if odd else sum(idx))%2==0]
+
+def overlap(anchor_a, anchor_b, array_a, array_b, return_values=False): # overlap_slices
+    # get overlapping slices/values from two arrays
     overlap_left = np.minimum(anchor_a, anchor_b)
     overlap_right = np.minimum(np.subtract(array_a.shape, anchor_a), np.subtract(array_b.shape, anchor_b))
     array_a_slices = tuple([slice(anchor_a[x]-overlap_left[x],anchor_a[x]+overlap_right[x]) for x in range(array_a.ndim)])
     array_b_slices = tuple([slice(anchor_b[x]-overlap_left[x],anchor_b[x]+overlap_right[x]) for x in range(array_b.ndim)])
-
-    preferredshape = np.minimum(array_a.shape, array_b.shape)
-    i = acenter(preferredshape) # centerindex
-    overlap_left = np.add(i, -overlap_left)
-    overlap_right = np.add(i, -overlap_right+(preferredshape%2==0).astype(np.int64)+1)
-    overlap_left[overlap_left<0] = 0
-    overlap_right[overlap_right<0] = 0
-    padding_data = np.concatenate([np.expand_dims(overlap_left, axis=-1), np.expand_dims(overlap_right, axis=-1)], axis=-1)
-    return array_a_slices, array_b_slices, padding_data
+    if return_values:
+        preferredshape = np.minimum(array_a.shape, array_b.shape)
+        i = acenter(preferredshape)
+        overlap_left = np.add(i, -overlap_left)
+        overlap_right = np.add(i, -overlap_right+(preferredshape%2==0).astype(np.int64)+1)
+        overlap_left[overlap_left<0] = 0
+        overlap_right[overlap_right<0] = 0
+        pad = np.concatenate([overlap_left.reshape(-1,1), overlap_right.reshape(-1,1)], axis=1)
+        return np.pad(array_a[*array_a_slices], pad), np.pad(array_b[*array_b_slices], pad)
+    return array_a_slices, array_b_slices
 
 def shapemultipliers(shape0, shape1, sigma=0.5):
     z = np.divide(shape0, shape1)
@@ -436,19 +436,6 @@ def shapemultipliers(shape0, shape1, sigma=0.5):
     b[2:] = 0
     b[z>=1] = 0
     return z, b
-def patternfinder(bigarray, patterns): # bad
-    bigarray = scale(bigarray)
-    patterns, patterns_a_min, patterns_a_max = scale_bulk(patterns, return_range=True)
-    bestindex = [[None, 1] for _ in range(len(patterns))]
-    for idx, x in np.ndenumerate(bigarray): # very slow but necessary
-        for p in range(len(patterns)):
-            over0, over1, missed = overlap(idx, acenter(patterns[p].shape), bigarray, patterns[p])
-            loss = np.mean(np.absolute(np.pad(bigarray[over0], missed, mode="constant", constant_values=0)-np.pad(patterns[p][over1], missed, mode="constant", constant_values=0.5)))
-            if bestindex[p][1]>loss: bestindex[p] = [idx, loss]
-    for p in range(len(patterns)):
-        over0, over1, missed = overlap(bestindex[p][0], acenter(patterns[p].shape), bigarray, patterns[p])
-        bestindex[p] = [np.pad(rescale(bigarray[over0], patterns_a_min, patterns_a_max), missed, mode="constant", constant_values=0), over0, bestindex[p][0], np.mean(np.absolute(bigarray[over0]-patterns[p][over1]))]
-    return bestindex
 
 
 
@@ -483,23 +470,23 @@ class keyhierarchy(): # store links between keys == gives best alternatives to a
     def add(self, source, subjects, r=1.):
         r = max((self.powers.shape[0]**(1/2)/self.powers.shape[0])*r, 0.001)
         if type(subjects) == list: # multiple subjects
-            if source!=None: self.inject(source)
+            if source is not None: self.inject(source)
             for x in subjects: self.inject(x)
-        elif source!=None and type(subjects) == str: # one source, one subject
+        elif source is not None and type(subjects) == str: # one source, one subject
             self.inject(source)
             self.inject(subjects)
             
         self.powers = scale(self.powers)
         
         if type(subjects) == list: # multiple subjects
-            if source!=None:
+            if source is not None:
                 for x in subjects: self.reinforce(x, source, r=r)
             for x in subjects:
                 for y in subjects:
                     if x!=y: self.reinforce(x, y, r=r/2)
-            if source!=None:
+            if source is not None:
                 for x in subjects: self.reinforce(source, x, r=r/4)
-        elif source!=None and type(subjects) == str: # one source, one subject
+        elif source is not None and type(subjects) == str: # one source, one subject
             self.reinforce(subjects, source, r=r)
             self.reinforce(source, subjects, r=r/4)
         self.powers = rescale(scale(self.powers), a_min=0, a_max=uint16max).astype(np.uint16)
@@ -631,56 +618,61 @@ def isigmoid(x):
 def loss(a, b): return np.average(np.diff([a, b], axis=0))
 
 
-def oddcycle(x, y): return int(x/(y/2))%2
-def oddcycles(x, y): return np.mod((x/(y/2)).astype(np.int8), 2)
 
-def lin(x, y, p=1): # 0...1...0...-1...0|0..
+
+
+####
+def odd_cycle(x, y):
+    return int(x/(y/2))%2
+def odd_cycles(x, y):
+    return np.mod((x/(y/2)).astype(np.int8), 2)
+
+def linear_cycle(x, y, p=1): # 0...1...0...-1...0|0..
     if y!=0:
         y = y/4
         out = (x%y)/y
-        a = oddcycle(x, y*2)
+        a = odd_cycle(x, y*2)
         out = out*-(a*2-1)+a
-        out = out*-(oddcycle(x, y*4)*2-1)
+        out = out*-(odd_cycle(x, y*4)*2-1)
         return power(out, p)
     return 0
-def arraylin(x, y, p=1):
+def linear_cycles(x, y, p=1): # linear_cycles
     x = np.array(x)
     if is_array(y) or y!=0:
         y = y/4
         out = np.mod(x, y)/y
-        a = oddcycles(x, y*2)
+        a = odd_cycles(x, y*2)
         out = out*-(a*2-1)+a
-        out = out*-(oddcycles(x, y*4)*2-1)
+        out = out*-(odd_cycles(x, y*4)*2-1)
         return power(out, p)
     return np.zeros(x.shape)
 
-def sin(x, y, p=1): # 0...1...0...-1...0|
+def sin_cycle(x, y, p=1): # 0...1...0...-1...0|
     if y!=0: return math.sin(math.pi*2*(x/y))**p
     return 0
-def arraysin(x, y, p=1):
+def sin_cycles(x, y, p=1): # arraysin
     x = np.array(x)
     if is_array(y) or y!=0: return power(np.sin(np.pi*2*(x/y)), p)
     return np.zeros(x.shape)
 
-
-def cos(x, y, p=1): # 1...0...-1...0...1|
+def cos_cycle(x, y, p=1): # 1...0...-1...0...1|
     if y!=0: return math.cos(math.pi*2*(x/y))**p
     return 0
-def arraycos(x, y, p=1):
+def cos_cycles(x, y, p=1):
     x = np.array(x)
     if is_array(y) or y!=0: return power(np.cos(np.pi*2*(x/y)), p)
     return np.zeros(x.shape)
 
-def tan(x, y, p=1): # 0...inf-inf...0|0...inf-inf...0|
+def tan_cycle(x, y, p=1): # 0...inf-inf...0|0...inf-inf...0|
     if y!=0: return math.tan(math.pi*2*(x/y))**p
     return 0
-def arraytan(x, y, p=1):
+def tan_cycles(x, y, p=1):
     x = np.array(x)
     if is_array(y) or y!=0:
         out = np.tan(np.pi*2*(x/y))
         return power(out, p)
     return np.zeros(x.shape)
-
+####
 
 
 
@@ -934,7 +926,7 @@ def mask_split(size, h, ratio=0.5):
 
 def centermass(a): # index for a multidimensional array's center(ish) value
     s = np.ones(a.shape)
-    def asd(x): return arraysin(np.linspace(0, 1, x), 2, 2)
+    def asd(x): return sin_cycles(np.linspace(0, 1, x), 2, 2)
     ss = [asd(x) for x in a.shape]
     for i,x in enumerate(ss):
         for ii in range(i): x = np.expand_dims(x, axis=0)
@@ -971,53 +963,8 @@ def centermass(a): # index for a multidimensional array's center(ish) value
     return index
 
 
-def overlap_slices(anchor_a, anchor_b, array_a, array_b):
-    # get overlapping slices from two arrays
-    overlap_left = np.minimum(anchor_a, anchor_b)
-    overlap_right = np.minimum(np.subtract(array_a.shape, anchor_a), np.subtract(array_b.shape, anchor_b))
-    array_a_slices = tuple([slice(anchor_a[x]-overlap_left[x],anchor_a[x]+overlap_right[x]) for x in range(array_a.ndim)])
-    array_b_slices = tuple([slice(anchor_b[x]-overlap_left[x],anchor_b[x]+overlap_right[x]) for x in range(array_b.ndim)])
-    return array_a_slices, array_b_slices
-def overlap_values(anchor_a, anchor_b, array_a, array_b):
-    # get overlapping values from two arrays
-    array_a_slices, array_b_slices = overlap_slices(anchor_a, anchor_b, array_a, array_b)
-    preferredshape = np.minimum(array_a.shape, array_b.shape)
-    i = acenter(preferredshape)
-    overlap_left = np.add(i, -overlap_left)
-    overlap_right = np.add(i, -overlap_right+(preferredshape%2==0).astype(np.int64)+1)
-    overlap_left[overlap_left<0] = 0
-    overlap_right[overlap_right<0] = 0
-    pad = np.concatenate([overlap_left.reshape(-1,1), overlap_right.reshape(-1,1)], axis=1)
-    return np.pad(array_a[*array_a_slices], pad), np.pad(array_b[*array_b_slices], pad)
 
 
-
-
-def iterate_lastaxis(array): # MULTI DIM
-    if array.ndim>1:
-        for ii in range(array.shape[0]):
-            a = eval(f"array[{ii}]")
-            if a.ndim>1:
-                for aa in iterate_lastaxis(a): yield aa
-            else: yield a
-    else: yield array
-
-def iterate_axis(array, axis=0):
-    dims = ":,"*axis
-    for i in range(array.shape[axis]): yield eval(f"array[{dims}{i}]")
-
-def iterate_lines(array):
-    if array.ndim>1:
-        for axis,x in enumerate(array.shape):
-            dims = ":,"*axis
-            for i in range(x):
-                a = eval(f"array[{dims}{i}]")
-                if a.ndim>1:
-                    for aa in iterate_lines(a): yield aa
-                else: yield a
-    else: yield array
-            
-    
 
 def arc(offset, degrees):
     radius = arc_radius(degrees)
@@ -1105,8 +1052,8 @@ class curvegen():
     
     def __len__(self): return max([len(getattr(self, x)) for x in ["px","vx","ax"]])
     
-    def _sin(self, t, r=1, p=1): return arraysin((np.arange(t+1))*r, t, p)
-    def _lin(self, t, r=1, p=1): return arraylin((np.arange(t+1))*r, t, p)
+    def _sin(self, t, r=1, p=1): return sin_cycles((np.arange(t+1))*r, t, p)
+    def _lin(self, t, r=1, p=1): return linear_cycles((np.arange(t+1))*r, t, p)
     def _series(self, length, n=1, weight=1, lin=False): return (self._lin if lin else self._sin)(length, n/4, weight)
     
     def _add(self, what, value, l, offset=0):
@@ -1147,15 +1094,15 @@ class curvegen():
         if size>0: l = abs(self._series(max(size, 1), n, weight, lin))
         else: l = np.ones(1)
         direction = heading_offset(heading_absolute(h))
-        if p!=None:
+        if p is not None:
             xy = np.multiply(direction, p)
             method("px", xy[0], l, offset)
             method("py", xy[1], l, offset)
-        if v!=None:
+        if v is not None:
             xy = np.multiply(direction, v)
             method("vx", xy[0], l, offset)
             method("vy", xy[1], l, offset)
-        if a!=None:
+        if a is not None:
             xy = np.multiply(direction, a)
             method("ax", xy[0], l, offset)
             method("ay", xy[1], l, offset)
@@ -1191,18 +1138,18 @@ class curvegen():
 
 
 def join_curve(x, y):
-    if np.sign(np.diff(y[:2]))!=np.sign(np.diff(x[-2:])): return np.append(x, -y)
+    if np.sign(np.diff(y[:2]))!=np.sign(np.diff(x[-2:])): y = -y
     return np.append(x, y)
 
 def reangle_curve(curve, angle):
-    o,d,h = odh((0,0), curve)
+    _,d,h = odh((0,0), curve)
     d_angle = h[-1]-angle
     offsets = heading_offset(h-d_angle)
     new_curve = np.expand_dims(d, axis=1)*offsets
     return new_curve/np.abs(new_curve).max()
     
 def rotate_curve(curve, rotation):
-    o,d,h = odh((0,0), curve)
+    _,d,h = odh((0,0), curve)
     offsets = heading_offset(h+rotation)
     new_curve = np.expand_dims(d, axis=1)*offsets
     return new_curve/np.abs(new_curve).max()
@@ -1224,8 +1171,8 @@ def rotate_curve(curve, rotation):
 
 def circle_mask(r, inner=0, border=0):
     d = int(r*2+1)
-    Y, X = np.ogrid[:d, :d]
-    dist_from_center = np.sqrt((X-r)**2 + (Y-r)**2)
+    ogrid_y, ogrid_x = np.ogrid[:d, :d]
+    dist_from_center = np.sqrt((ogrid_x-r)**2 + (ogrid_y-r)**2)
     mask = dist_from_center<=r
     if inner>0: mask[dist_from_center<=inner] = False
     elif inner<0: mask[dist_from_center<=r+inner] = False
@@ -1292,7 +1239,8 @@ def mask_blur(mask, n=1):
     mask[n:,:] += y_u
     mask[:,n:] += x_l
     mask[:,:-n] += x_r
-    if mask.size and mask.any(): mask /= mask.max()
+    if mask.size and mask.any():
+        mask /= mask.max()
     return np.clip(mask, a_min=0, a_max=1)
 
 
@@ -1321,502 +1269,6 @@ def normal(value, expected, variance): #   normal / Gauss
 #   generalized gamma
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    #print(np.linalg.norm([]))
-##    mask = circle_mask(10, inner=-3).astype(np.int8)
-##    print(mask)
-##    print(mask_blur(mask, 1))
-    
-##    for i in range(0, 360, 5):
-##        print("\n", i)
-##        print(line_gradient((8,8), i, offset=0, width=1))
-####        print(mask_split((8,8), i, 0.8))
-##        input()
-    
-##    for i in range(10):
-##        print(i, deviant(100, 50, seed=i))
-##        print(" ", deviant2(-100, .5, seed=i))
-    
-##    for i in prime_generator(1e6, 1):
-##        input(str(i))
-    
-##    print(circle_mask(2., 0, 0))
-    
-    #print(is_prime(91873))
-
-    
-##    array = np.random.randint(10,100, (10,20,3))
-##    import matplotlib.pyplot as plt
-##
-##    fig, ax = plt.subplots()
-##    ax.imshow(array)
-##    plt.show()
-
-    
-##    a = np.random.random((1000,1000,3))
-##    from time import perf_counter_ns as nspec
-    
-##    start = nspec()
-##    idxa = idx_array(a)
-##    end = nspec()
-##
-##    valid = a>.999
-##    print(idxa.shape, idxa[valid].shape)
-##    print(idxa[valid][:3].T)
-##    print(a[*idxa[valid][:3].T])
-##    print((end-start)/10**6, "ms")
-    pass
-
-    
-##    import unittest
-##    class testcase(unittest.TestCase):
-##        def test_acenter(self):
-##            f = acenter
-##            self.assertEqual(tuple(f((10,10))), (4,4))
-##            self.assertEqual(tuple(f((9,10))), (4,4))
-##            self.assertEqual(tuple(f((8,10,50))), (3,4,24))
-##            
-##        def test_around(self):
-##            f = around
-##            self.assertEqual(f(1.5), 2)
-##            self.assertEqual(f(1.2), 1)
-##            self.assertEqual(f(-1.63), -2)
-##            
-##        def test_make_even(self):
-##            f = make_even
-##            self.assertEqual(f(1), 2)
-##            self.assertEqual(f(-1), -2)
-##            self.assertEqual(f((1,-1)), (2,-2))
-##            self.assertTrue((f(np.ones((2,2)))==np.ones((2,2))*2).all())
-##            self.assertTrue((f(-np.ones((2,2)))==-np.ones((2,2))*2).all())
-##    unittest.main()
-
-
-##    g_prime = generator_prime(0, every=100)
-##    print([next(g_prime) for i in range(100)])
-##    print(1)
-##    g_prime.send(1) # x = yield -> x = 1
-##    print(2)
-##    print([next(g_prime) for i in range(100)])
-    
-##    print(dictrng({"asd":5,"a":3}, 3))
-    
-##    print(deviants(10, 100, n=5))
-
-    
-##    a = np.arange(0,10).reshape(2,5)
-##    b = np.arange(10,20).reshape(-1,1)
-##    print(scale_bulk(a, b))
-    
-##    print(crossndenumerate(a, False))
-##    print(crossndenumerate(a, True))
-    
-##    print(totuple(np.ones((3,3,3)), -1))
-    
-##    a = np.random.randint(0,10, (10,10))
-##    a[5:] += 10
-##    print(a)
-##    print(centermass(a))
-    
-##    print(is_prime(np.arange(0,20)))
-    
-##    a = np.linspace(1, 3, 11)
-##    print(a)
-##    print(np.mod(a,1))
-##    print(around(a))
-    
-##    a = np.arange(1000).reshape(-1,2)+1
-##    print(amin(a, 0))
-    
-##    a = np.random.randint(0,2,(10,10))
-##    print(a)
-##    b = find_rects(a)
-##    print(b)
-    
-##    print(rngseries(["qwe", 0.5, "abc"]))
-##    a = np.ones((10,10))
-##    print(getsurroundings(a, (9,0), r=1, pad=1))
-    
-
-######    a = 5
-######    x = rngsnd(a, 1.1, 100)
-######    print(x)
-    
-##    for x in range(0, 361, 10):
-##        print(arc((100,100), x))
-    
-    
-##    print(get_line(a[0], 1, 0))
-##    print(get_line(a[0], 0, 0))
-##    for x in iterate_lines(a): print(x)
-##    for x in iterate_lastaxis(a): print(x)
-##    for x in iterate_axis(a, 1): print(x)
-##    for x in iterate_lines(a): print(x)
-    
-##    a = np.random.randint(1, 10, (20,10,3))
-##    b = np.random.randint(1, 10, (3,3,3))
-##    print(a)
-##    print(b)
-##    print(*overlap_values((0,0,0), (1,1,1), a, b))
-    
-##    print(distance(((0,0),), ((10,10), (12,12))))
-##    y = 10
-##    import matplotlib.pyplot as plt
-##    fig, ax = plt.subplots()
-##    for i in np.arange(0,2,0.1):
-##        x = np.arange(y*4*(i*10), y*4*(i*10+1)+1)
-##        b = arraysin(x, y*2+i, 1)
-##        ax.plot(x, b)
-##    plt.show()
-
-    
-##    size = (10,10)
-##    prev = mask_line(size, 0)
-##    for h in range(0, 360, 1):
-##        x = mask_line(size, h)
-##        print("update" if not (prev==x).all() else "-")
-##        prev = x
-        
-        #print(mask_split(size, h, 0.5), h, "\n")
-    
-##    a = np.linspace(0, 1, 10)
-##    print(power(a, 100)) # np.inf
-    
-##    ## nearestpoint
-##    points = [(0,0),(1,1),(10,2)]
-##    i = nearestpoint(points, (12,0))
-##    print(i)
-##
-##    points = np.array([[(0,0),(1,1),(10,2)], [(5,2),(1,8),(10,20)]])
-##    i = nearestpoint_bulk(points, (11,5))
-##    print(i)
-    
-    ## sigmoid & isigmoid
-####    a = sigmoid(0.2)
-####    print(a)
-####    b = isigmoid(a)
-####    print(b)
-
-    
-    ## matchloss
-####    a = np.random.randint(0,10, 10)
-####    b = np.random.randint(0,10, 10)
-####    print(a)
-####    print(b)
-####    c = matchloss(a, b)
-####    print(c)
-####    bestc2 = c[2]
-####    while c[2]>a.size:
-####        a = np.random.randint(0,10, 10)
-####        c = matchloss(a, b)
-####        if bestc2>c[2]:
-####            print("")
-####            bestc2 = c[2]
-####            print(a)
-####            print(c)
-    
-    ## bestmatch
-##    a = np.random.randint(0,11, 3)-5
-##    b = np.random.randint(0,21, 200)-10
-##    print(a)
-##    print(b)
-##    c = bestmatch(a, b)
-##    print(c)
-
-    
-##    a = rngsnd(10, 4)
-##    b = arrayrngsnd(10, 4, 100)
-##    print(a)
-##    print(b)
-    
-##    d = {"asd": 2,
-##         "es": 5,
-##         }
-##    print(dictrng(d, 50))
-##    print(dictrng2(d, 50))
-
-    
-##    a = np.flip(np.arange(10))
-##    print(rng_bulk(a, 10))
-##    print(rng_bulk(a, 10))
-##    print(rng_bulk(a, 10))
-##    print(rng_bulk(a, 10))
-
-    
-##    a = sigmoid(0/50)
-##    print(a)
-##    t = 0
-##    for i in range(50): t += floatrng(a)
-##    print(t)
-
-##    a = np.arange(10+1)
-##    print(a)
-##    a = arraysincycle(a, 10)
-##    print(a)
-    
-####    a = np.random.randint(0, 100, (1,2))
-####    b = np.random.randint(0, 100, (10,2))
-####
-####    o, d, h = point_to_point_array(a, b)
-####    print(o, h)
-####    o = heading_offset_array(h)
-####    print(o)
-####    h = offset_heading_array(o)
-####    print(h)
-    
-##    for x in b:
-##        o, d, h = point_to_point(a[0], x)
-##        print(h)
-##
-##        o = heading_offset(h)
-##        print(o)
-##
-##        h = offset_heading(*o)
-##        print(h)
-
-    
-##    print(sigmoid(0))
-    
-####    a = np.random.randint(3, 8, (2,))
-####    parts = [3,2]
-####    d = composition(a, parts)
-####    b = acomp(d, parts)
-####    print(a, d, b)
-    
-##    for i in range(50):
-##        x = np.random.randint(0, 2, (2,))
-##        y = np.random.randint(0, 2, (2,))
-####        z = directionoffset(x, y)
-##        z = point_to_point(x, y)#math.degrees(math.atan(x/y))
-####        zz = math.degrees(anglebetweenvectors(x, y))
-##        print(x, y, z)
-##        print(zz)
-    
-##    r = np.zeros(20)
-##    for x in range(100):
-##        i = rng(np.hanning(r.size)*r.size) # opponent lvl where r.size == player lvl
-##        r[i] += 1
-##    print(r)
-    
-##    a = np.random.random((2,4))
-##    a = np.random.randint(0, 10, (10,10,10))
-##    print(a, a.mean(), a.sum())
-##    b = diffblur(a)
-##    print(b, b.mean(), b.sum())
-    
-##    a = np.random.randint(0, 10, (10,10))
-##    print(getsurroundings(a, (2,4), 1))
-##    print(getsurroundings2(a, (2,4), 1))
-    
-##    asd = complexvalue(1, 100)
-##    asd.x = 10
-##    while 1:
-##        asd.add(-2)
-##        print(asd.x)
-##        input()
-    
-##    asd.add(10)
-##    print(asd.x)
-##    a = np.array([0., 360.])
-##    a = spacerng(a, 6)
-##    print(a)
-    
-##    x = polyfrompoints(np.array([(45,50),(10,80),(20,40)]), 2)
-##    print(x.coef)
-    
-##    x = 5.8#np.array([11,22.5,44.33])
-##    parts = np.flip(np.sort(np.random.random(3)))#np.array([11,0.75,0.25])#np.flip(np.sort(.reshape(-1)))
-##    print(parts)
-##    comp = composition(x, parts)
-##    print(comp)
-##    print(np.sum(comp*parts))
-
-    
-##    a = np.sort(np.random.randint(-1000, 1000, 50))
-##    print(a)
-##    print(cluster(a, 5))
-
-    ### complexvalue
-##    cv = complexvalue((0,2), r=4, neg=True)
-##    for x in range(100):
-##        cv.add(.5)
-##        print(cv.xp, "/", cv(), ":", cv.x)
-##    for x in range(100):
-##        cv.add(-1)
-##        print(cv.xp, "/", cv(), ":", cv.x)
-
-
-
-
-
-##    print([stepcycle(x, 9) for x in range(10)])
-    
-########        print(arraystepcycle((x,(x+1)*2), 35))
-########        print(stepcycle(x, 35), stepcycle((x+1)*2, 35))
-######        print(x)
-######        print(arraysincycle((x,(x+1)*2), 35))
-######        print(sincycle(x, 35), sincycle((x+1)*2, 35))
-        
-##        print(arraycoscycle((x,(x+1)*2), 35))
-##        print(coscycle(x, 35), coscycle((x+1)*2, 35))
-        
-##        print(arraytancycle((x,(x+1)*2), 35))
-##        print(tancycle(x, 35), tancycle((x+1)*2, 35))
-        
-##        print(arrayblipcycle((x,(x+1)*2), 35))
-##        print(blipcycle(x, 35), blipcycle((x+1)*2, 35))
-        
-##        print(x, blipcycle(x, 35), sincycle(x, 35))
-
-    
-    ### valuephobia
-##    a = around(np.random.random((8,))*100)/100
-##    values = [0,0.3,0.7,1]
-##    print(a)
-##    print(valuephobia(a, np.array(values)))
-    ###
-    
-    # weights
-##    a = np.random.randint(0,5, (8,))
-##    print(weights(a))
-    
-    # n_dist_bulk
-##    print(n_dist_bulk([(10,5),(50,20)], (20,8)))
-##    print(int("".join(np.random.randint(0,9, (10000,)).astype("str").tolist()))+1)
-    
-    ## keyhierarchy
-##    import random
-##    wn = keyhierarchy()
-##    # setup
-##    colors = ["green", "red", "blue"]
-##    plants = ["tree", "bush", "grass"]
-##    wn.add(None, ["plant", "color"]) # equal relation
-##    wn.add("color", colors) # color is above colors
-##    wn.add("plant", plants) # plant is above plants
-##    for x in range(4):
-##        wn.add(str(x), random.choice(colors), 0.5)
-##        wn.add(str(x), random.choice(plants), 0.5)
-##        
-##    print(wn.multiget(["blue", "red"], 0))
-##    print(wn.get("plant", 0))
-##    print(wn.get("color", 0))
-##    print(wn.get("1", 0))
-    ##
-
-
-    ## # 9 223 372 036 854 775 808
-##    print(primecheck(np.array([-6, -11, 91, 90]), slow=False))
-    
-##    import timepck
-    pass
-    ## around
-##    print(around(np.random.random(30)))
-
-    ## stretching
-##    a = np.random.randint(1, 10, (10,10,10))
-##    print(a)
-##    print(stretch(a, 2))
-##    print(stretch(a, 0.5))
-    
-    ## patternfinder + overlap + crossdenumerate
-##    a = np.random.randint(1, 10, (100,100))
-##    b = np.random.randint(1, 10, (8,8)) # 
-##    print(overlap((2,2,4), (1,1,0), a, b))
-####    print(crossdenumerate(a))
-##    testpatterns = [b,c]
-##    for x in testpatterns: print(x) # 
-##    starttime = timepck.pec()
-##    print("processing...")
-##    for x in patternfinder(a, testpatterns):
-##        print(x)
-##    print("done!", timepck.pec()-starttime, "sec")
-    
-
-    ## getsurroundings
-##    a = np.arange(64*8).reshape((8,8,-1))
-##    print(getsurroundings(a, (0,0), (1,1)))
-    
-##    print((719%360))
-    
-##    a = np.array([2,1,3])
-##    for x in range(20):
-##        print(variatearray(a, 1))
-
-##    import random
-##    print(conformarrays([np.ones(random.randint(1,8)) for x in range(10)], 0)) # 
-    
-##    print(degreedifference(360, 330))
-##    v1 = [1, 4]
-##    v2 = [1, 43, 65,9, 10]
-##    print(preferarray(v1, v2))
-    ### weightshift
-##    print(weightshift([0.5, 1 , 2.4], 1, 2)) # ([0.5, 1 , 2.4], 1, 2) -> [0.25, 2 , 1.2]
-    
-
-    ### nearestvalue
-##    arr = np.random.uniform(size=(8,2))
-####    print(arr)
-##    a = nearestpoint(arr, (0.1, 0.2))
-##    print(a)
-
-    ### rng
-##    for x in range(100):
-##        print(rng([1,1,1]))
-
-
-    ## postranslate
-##    a = np.zeros((100,100))
-##    a[(67, 63)] = 1
-##    print(a[postranslate((20.1, 50), (30, 80), (100,100))])
-
-    ### exptoshape
-##    ar = np.random.uniform(0,1)
-##    print(ar)
-##    ar = exptoshape(ar, (8,8,3), (2, 2, 2))
-##    print(ar)
-
-    ### findr:
-##    print(findr(np.array([(9,9,0), (11, 10,1),(1000,20,1)]), (30, 20,200), np.ones((100,100,100))))
-
-    ### variate:
-##    print(variate(np.array((2,1,0,5,8)), -1))
-    ### adam:
-##    print(adam([[1,1,5],[82,3,2]]))
-
-##    a = (2,0,0)
-##    b = (1,1,-3)
-##    print(vectororientation(crossproduct(a, b)))
-
-    ### expandblur
-##    a = np.array([5.,2.,1.,5.,3.,0.])
-##    print(a)
-##    a = expandblur(a, 4)
-##    print(a)
-
-
-    ### gaussianredistribution
-##    print(gaussianredistribution("asdasd"))
-
-    #### anglebetweenvectors
-##    v1 = (3,2)
-##    v2 = (5,3)
-##
-##    r1 = anglebetweenvectors(v1, v2)
-##    r2 = anglebetweenvectors2(v1, v2)
-##    print(r1, math.degrees(r1))
-##    print(*r2, math.degrees(r2[0]))
-    pass
+##if __name__ == "__main__":
+##    pass
 

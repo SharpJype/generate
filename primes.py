@@ -88,14 +88,13 @@ if __name__ == "__main__":
     a = int(float(input("start number: ")))
     b = int(float(input("end number: ")))
     threads = int(float(input("amount of threads: ")))
-    print("")
-    print(*timepck.datetime())
+    print(*timepck.cleantuple())
     if threads>1: multi_thread(a, b, threads=threads)
     else:
         basename = __file__.rsplit(os.path.sep, 1)[1]
         path = os.path.join(".", basename.rsplit(".", 1)[0])
         print("writing to dir:", path)
         primerun(a, b, path, "singlethread", printing=True)
-    print(*timepck.datetime())
-    input("\ndone!")
+    print(*timepck.cleantuple())
+    input("done!")
     pass

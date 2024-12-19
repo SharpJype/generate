@@ -1,5 +1,7 @@
-import numpy as np
 import random
+
+import numpy as np
+
 def is_array(x): return type(x)==np.ndarray
 
 def is_prime(x): # check for primes

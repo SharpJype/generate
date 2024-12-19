@@ -181,26 +181,82 @@ def validifyimage(a, colors=True, alpha=True):
     elif not colors and alpha: a = a[:,:,:2]
     return a
 
+def convert_imagelike_array_to_RGBA(self, a):
+    colors = a.ndim==3 and a.shape[2]>2 # has color information
+    alpha = a.ndim==3 and a.shape[2]%2==0 # has transparency information
+    a = imagepck.imageexpand(a, 4) # :,:,RGBA
+    if not alpha: a[:,:,3] = 255
+    if not colors:
+        a[:,:,1] = a[:,:,0]
+        a[:,:,2] = a[:,:,0]
+    return a
 
-def imageresize(path, out, shape):
-    dirs, name, ext = explode(path)
-    with PILimg.open(path) as img:
-        shape = shapenormalize(img.size, shape)
-        if getattr(img, "is_animated", False):
-            imgs = []
-            img0 = img.resize(shape)
-            while 1:
-                img.seek(img.tell()+1)
-                imgs.append(img.resize(shape))
-            img0.save(out, save_all=True, append_images=imgs, optimize=True, interlace=False, **img.info)
+
+
+def resize_image(img, shape):
+    shape = shapenormalize(img.size, shape)
+    if getattr(img, "is_animated", False):
+        imgs = [img.resize(shape)]
+        while 1:
+            img.seek(img.tell()+1)
+            imgs.append(img.resize(shape))
+        return imgs
+    return img.resize(shape)
+
+def image_to_array(img, path):
+    ext = path.rsplit(".", 1)[1].lower()
+    mode = img.mode
+    if getattr(img, "is_animated", False):
+        l = imageio.mimread(path)
+        mode = l[0].shape[-1]
+        for i,a in enumerate(l):
+            if a.shape[-1]>mode: l[i] = a[:,:,:mode]
+        return np.asarray(l), img.info
+    else:
+        if ext in ["tif","tiff"]: ext = "tif"
+        elif ext in ["png","tga"]: ext = "png"
+        elif ext in ["ico"]: pass
+        elif ext in ["jpeg","jpg"]: ext = "jpg" # rgb
+        elif ext == "webp":
+            if "A" in mode: ext = "png"
+            else: ext = "jpg"
+        elif ext in ["pgm","xbm"]: ext = "jpg" # 8/16-bit greyscale
+        elif ext in ["pbm"]: # 1-bit greyscale
+            mode = "1"
+            ext = "png"
+        elif ext in ["ppm"]: # 24-bit
+            mode = "RGB"
+            ext = "bmp"
+        else: return np.zeros(0, dtype=np.uint8), {}
+        if mode=="P":
+            mode = "RGBA" if img.has_transparency_data else "RGB"
+            img = img.convert(mode)
+        elif mode=="PA":
+            mode = "RGBA"
+            img = img.convert(mode)
+        if mode in ["LA","RGBA"] and ext == "jpg": ext = "png"
+        return np.asarray(img, dtype=np.uint8), {"mode": mode,"ext": ext}
+    
+
+def load_resize_save(path, out, shape): # imageresize
+    try:
+        img = PILimg.open(path)
+    except PILimg.UnidentifiedImageError:
+        return ""
+    img = resize_image(img, shape)
+    if type(img)==list:
+        img[0].save(out, save_all=True, append_images=img[1:], optimize=True, interlace=False, **img.info)
+    else:
+        dirs, name, ext = explode(path)
+        if ext=="webp":
+            if "A" in img.mode: ext = "png"
+            else: ext = "jpg"
+            out = out[:-4]+ext
+        if ext in ["jpg","jpeg"]: img.save(out, quality=95, optimize=True, progressive=True)
         else:
-            img = img.resize(shape)
-            if ext=="webp":
-                ext = "jpg"
-                out = out.replace(".webp", ".jpg")
-            if ext in ["jpg","jpeg"]: img.save(out, quality=95, optimize=True, progressive=True)
-            else: img.save(out, optimize=True)
-    return True
+            img.save(out, optimize=True)
+    img.close()
+    return out
 
 
 def gifsave(path, array, **info): return imageio.mimwrite(path, array, **info)
@@ -218,46 +274,14 @@ def save(path, a, **info):
 
 
 def load(path):
+    a, info = np.zeros(0, dtype=np.uint8), {}
     if os.path.isfile(path):
-        dirs, name, ext = explode(path)
-        ext = ext.lower()
-        with PILimg.open(path) as img:
-            mode = img.mode
-            if getattr(img, "is_animated", False):
-                l = imageio.mimread(path)
-                mode = l[0].shape[-1]
-                for i,a in enumerate(l):
-                    if a.shape[-1]>mode: l[i] = a[:,:,:mode]
-                return np.asarray(l), img.info
-            else:
-                if ext in ["tif","tiff"]: ext = "tif"
-                elif ext in ["png","tga"]: ext = "png"
-                elif ext in ["ico"]: pass
-                elif ext in ["jpeg","jpg","webp"]: ext = "jpg" # rgb
-                elif ext in ["pgm","xbm"]: ext = "jpg" # 8/16-bit greyscale
-                elif ext in ["pbm"]: # 1-bit greyscale
-                    mode = "1"
-                    ext = "png"
-                elif ext in ["ppm"]: # 24-bit
-                    mode = "RGB"
-                    ext = "bmp"
-                else:
-                    img.close()
-                    return np.zeros(0, dtype=np.uint8), {}
-                if mode=="P":
-                    mode = "RGBA" if img.has_transparency_data else "RGB"
-                    img = img.convert(mode)
-                elif mode=="PA":
-                    mode = "RGBA"
-                    img = img.convert(mode)
-                if mode in ["LA","RGBA"] and ext == "jpg": ext = "png"
-                a = np.asarray(img, dtype=np.uint8)
-                info = {
-                    "mode": mode,
-                    "ext": ext,
-                    }
-                return a, info
-    return np.zeros(0, dtype=np.uint8), {}
+        try:
+            with PILimg.open(path) as img:
+                a, info = image_to_array(img, path)
+        except PILimg.UnidentifiedImageError:
+            pass
+    return a, info
 
 
 
@@ -353,6 +377,9 @@ def hanning2D(shape):
 def smallestrect(a): # trim Falses from bool array and return slices for the smallest possible rectangle
     b, trims = trimvalues(a.astype("bool"), False)
     return tuple([slice(trims[d][0], a.shape[d]-trims[d][1]) for d in range(a.ndim)])
+
+
+
 
 
 

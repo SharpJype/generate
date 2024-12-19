@@ -5,30 +5,30 @@ def randombin(l, blacklist=""):
     # 10000 calls -> 0.02690509999999996
     while 1:
         x = ''.join(format(x, '08b') for x in os.urandom(max(int(l/8), 1)))[:l+1]
-        if not x in blacklist: return x
+        if x not in blacklist: return x
         
 def randomint(l, blacklist=""): # random.randint(0,10**l) is faster
     # 10000 calls -> 0.06438519999999998
     while 1:
         x = str(bytes([48+i//27 for i in os.urandom(l)]), "ascii")
-        if not x in blacklist: return x
+        if x not in blacklist: return x
         
 def randomstr(l, blacklist=""): # a-z
     # 10000 calls -> 0.07719710000000002
     while 1:
         x = str(bytes([97+i//10 for i in os.urandom(l)]), "ascii")
-        if not x in blacklist: return x
+        if x not in blacklist: return x
         
 def randomhex(l, blacklist=""):
     # 10000 calls -> 0.09409780000000001
     while 1:
         x = ''.join(format(x, 'x') for x in os.urandom(max(int(l*0.6), 1)))[:l+1]
-        if not x in blacklist: return x
+        if x not in blacklist: return x
 
 def strhash(string):
     value = 0
-    for i in range(len(string)):
-        value += bytes(string[i], "utf8")[0]<<i
+    for i,char in enumerate(string):
+        value += bytes(char, "utf8")[0]<<i
     return value
 
 
@@ -40,7 +40,8 @@ def explode(path):
     dirs = []
     if path:
         name = os.path.basename(path)
-        if "." in name: name, ext = name.rsplit(".", 1)
+        if "." in name:
+            name, ext = name.rsplit(".", 1)
         dirpath, tail = os.path.split(os.path.dirname(path))
         while tail:
             dirs.append(tail)
@@ -50,7 +51,13 @@ def explode(path):
     if "" in dirs[-1:]: dirs = dirs[:-1]
     return dirs, name, ext
 
-def implode(dirs, name=None, ext=None): return (os.path.sep.join(dirs) if dirs else ".")+str(os.path.sep+name+str("."+ext if ext else "") if name else "")
+def implode(dirs, name=None, ext=None):
+    if not dirs:
+        dirs.append(".")
+    if name:
+        dirs.append(name+("."+ext if ext else ""))
+    else: dirs.append("")
+    return os.path.sep.join(dirs)
     
 def list_files(path):
     try:
@@ -58,19 +65,19 @@ def list_files(path):
             for i in os.listdir(path):
                 i = os.path.join(path, i)
                 if os.path.isfile(i): yield i
-    except: pass # denied
+    except PermissionError: pass # denied
 def list_folders(path):
     try:
         if os.path.isdir(path):
             for f in os.listdir(path):
                 f = os.path.join(path, f)
                 if os.path.isdir(f): yield f
-    except: pass # denied
+    except PermissionError: pass # denied
 
 def list_files_recur(path):
     for f in list_folders(path):
-        for i in list_files_recur(f): yield i
-    for i in list_files(path): yield i
+        yield from list_files_recur(f)
+    yield from list_files(path)
 
 def delete_file(path):
     if os.path.isfile(path):
@@ -89,28 +96,31 @@ def delete_folder(path):
 def getsize(path): return os.path.getsize(path)
 def getsize_folder(path):
     size = 0
-    for i in list_files_recur(path): size += os.path.getsize(i)
+    for i in list_files_recur(path):
+        size += os.path.getsize(i)
     return size
 
 
 
-def basename(path): return os.path.basename(path).rsplit(".",1)[0]
+def basename(path):
+    return os.path.basename(path).rsplit(".",1)[0]
 
 
 
-def print_up(n=1): sys.stdout.write("\033[F"*n)
+def print_up(n=1):
+    sys.stdout.write("\033[F"*n)
 
 def get_folder(path):
     if "." in os.path.basename(path): path = os.path.dirname(path)
     return path
 
-def parent_folder(path, n=0): return os.path.abspath(path).rsplit(os.path.sep, n+1)[0]
+def parent_folder(path, n=0):
+    return os.path.abspath(path).rsplit(os.path.sep, n+1)[0]
 
 
 def makedirs(path):
-    path = get_folder(path)
-    if path: os.makedirs(path, exist_ok=True)
-
+    if path:=get_folder(path):
+        os.makedirs(path, exist_ok=True)
 
 
 def sort_by_path(l):
@@ -120,7 +130,7 @@ def sort_by_path(l):
     l.sort(key=lambda x:os.path.sep.join(x[0]).lower()) # dirs
     return [implode(*x) for x in l]
 def sort_by_size(l):
-    l.sort(key=lambda x:getsize_folder(x))
+    l.sort(key=getsize_folder)
     return l
 
 
@@ -130,15 +140,18 @@ def folder_dict(path, max_depth=-1, fullpaths=False):
     d = {}
     if os.path.isdir(path):
         for i in list_files(path):
-            dirs, name, ext = explode(i)
-            d[i if fullpaths else (name if not ext else name+"."+ext)] = os.path.getsize(i)
+            _, name, ext = explode(i)
+            k = i if fullpaths else (name if not ext else name+"."+ext)
+            d[k] = os.path.getsize(i)
         if max_depth!=0:
             for f in list_folders(path):
-                dirs, name, ext = explode(f)
-                d[f if fullpaths else (name if not ext else name+"."+ext)] = folder_dict(f, max_depth-1, fullpaths=fullpaths)
+                _, name, ext = explode(f)
+                k = f if fullpaths else (name if not ext else name+"."+ext)
+                d[k] = folder_dict(f, max_depth-1, fullpaths=fullpaths)
     else:
-        dirs, name, ext = explode(path)
-        d[path if fullpaths else (name if not ext else name+"."+ext)] = os.path.getsize(path)
+        _, name, ext = explode(path)
+        k = path if fullpaths else (name if not ext else name+"."+ext)
+        d[k] = os.path.getsize(path)
     return d
 
 def combine_folder_dicts(d0, d1):
