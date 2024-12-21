@@ -1,18 +1,24 @@
 import sys, os
 import pyperclip
 sys.path.insert(0, 'lib')
-import ospck
+import timepck
+
+def main():
+    file = "filename.txt"
+    date = timepck.cleandate()
+    count = 0
+    if os.path.isfile(file):
+        with open(file, "r", encoding="ascii") as f:
+            olddate, count = f.read().rsplit("-", 1)
+            if olddate==date: count = int(count)+1
+            else: count = 0
+    name = date+"-"+str(count)
+    pyperclip.copy(name)
+    with open(file, "w", encoding="ascii") as f:
+        f.write(name)
+
 
 if __name__ == "__main__":
-    if os.path.isfile("filenames.txt"):
-        usednames = open("filenames.txt", "r", encoding="ascii").read().split("\n")
-    else: usednames = []
-    l = 6
-    while 1:
-        rngname = ospck.randomhex(l, usednames)
-        if rngname in usednames: l += 1
-        else: break
-    pyperclip.copy(rngname)
-    open("filenames.txt", "a", encoding="ascii").write(rngname+"\n")
+    main()
     pass
 

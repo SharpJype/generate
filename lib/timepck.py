@@ -204,6 +204,8 @@ def clean(date=None, ms=False):
     if date.microsecond: return date.isoformat()[:-6-7*(1-ms)]
     return date.isoformat()[:-6]
 
+def cleandate(): return clean().rsplit("T", 1)[0]
+
 def cleantuple(*args, **kwargs):
     return clean(*args, **kwargs).split("T")
 
@@ -224,8 +226,12 @@ def pathtime(date): # turn datetime object to a path friendly string or reverse 
 #
 
 
+
+
+
 if __name__ == "__main__":
-    print(pathtime("2024a01m29d_20h04m15s"))
+##    print(cleandate())
+##    print(pathtime("2024a01m29d_20h04m15s"))
     
 ####    t = today()
 ######    t = tomorrow()
